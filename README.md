@@ -1,0 +1,56 @@
+# Internship Application Agent
+
+Local human-in-the-loop assistant for preparing and tracking internship
+applications. The MVP keeps deterministic checks in Python and isolates AI
+calls behind services.
+
+## Current Milestones
+
+- Milestone 1: project foundation, candidate profile loading, vacancy schemas,
+  deterministic eligibility/scoring, SQLite repository, and minimal Streamlit UI.
+- Milestone 2: structured vacancy extraction with a deterministic demo extractor
+  and an OpenAI Responses API adapter.
+
+## Setup
+
+```powershell
+.\.venv\Scripts\python.exe -m pip install -e ".[dev]"
+```
+
+Copy `.env.example` to `.env` for local settings. Keep demo mode enabled unless
+you intend to call the OpenAI API.
+
+```dotenv
+INTERNSHIP_AGENT_DEMO_MODE=true
+OPENAI_API_KEY=
+OPENAI_MODEL=
+```
+
+## Run
+
+```powershell
+.\.venv\Scripts\python.exe -m streamlit run app.py
+```
+
+## Verify
+
+```powershell
+.\.venv\Scripts\python.exe -m ruff check .
+.\.venv\Scripts\python.exe -m ruff format --check .
+.\.venv\Scripts\python.exe -m mypy src
+.\.venv\Scripts\python.exe -m pytest
+```
+
+## Safety
+
+- The app must not submit applications or send emails automatically.
+- Generated claims must be grounded in the verified candidate profile or
+  approved local evidence.
+- Private profile data and personal documents are ignored by Git.
+- Tests do not require network access.
+
+## Vacancy Extraction
+
+Demo mode uses deterministic local extraction and never calls OpenAI. Real mode
+uses the OpenAI Responses API through `OpenAIVacancyExtractor`, requesting a
+JSON-schema structured response and validating it with Pydantic before use.

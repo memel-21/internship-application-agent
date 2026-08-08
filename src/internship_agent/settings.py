@@ -2,7 +2,7 @@
 
 from pathlib import Path
 
-from pydantic import Field
+from pydantic import AliasChoices, Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -14,3 +14,11 @@ class Settings(BaseSettings):
     demo_mode: bool = True
     database_url: str = "sqlite:///data/internship_agent.db"
     candidate_profile_path: Path = Field(default=Path("config/candidate_profile.json"))
+    openai_api_key: str | None = Field(
+        default=None,
+        validation_alias=AliasChoices("OPENAI_API_KEY", "INTERNSHIP_AGENT_OPENAI_API_KEY"),
+    )
+    openai_model: str = Field(
+        default="gpt-5-mini",
+        validation_alias=AliasChoices("OPENAI_MODEL", "INTERNSHIP_AGENT_OPENAI_MODEL"),
+    )
