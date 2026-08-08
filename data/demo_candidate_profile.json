@@ -1,0 +1,47 @@
+{
+  "full_name": "Demo Student",
+  "email": "demo.student@example.edu",
+  "university": "Example University",
+  "degree": "Bachelor of Computer Science",
+  "field_of_study": "Computer Science",
+  "graduation_year": 2027,
+  "verified": true,
+  "skills": [
+    "Python",
+    "SQL",
+    "Machine Learning",
+    "Streamlit",
+    "Data Analysis"
+  ],
+  "work_authorizations": [
+    {
+      "country": "Malaysia",
+      "status": "Citizen"
+    }
+  ],
+  "evidence_files": [
+    {
+      "evidence_id": "coursework-python",
+      "path": "evidence/python_coursework.pdf",
+      "description": "Approved coursework evidence for Python programming.",
+      "approved": true
+    }
+  ],
+  "experiences": [
+    {
+      "organization": "Example University",
+      "title": "Data Science Coursework Project",
+      "start_date": "2025-01-15",
+      "end_date": "2025-05-30",
+      "summary": "Built a supervised learning project using Python and SQL-backed datasets.",
+      "skills": [
+        "Python",
+        "SQL",
+        "Machine Learning"
+      ],
+      "evidence_ids": [
+        "coursework-python"
+      ]
+    }
+  ]
+}

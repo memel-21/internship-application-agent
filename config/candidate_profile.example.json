@@ -1,0 +1,93 @@
+{
+  "schema_version": 1,
+  "personal": {
+    "full_name": "Example Student",
+    "email": "student@example.edu",
+    "phone": "+60000000000",
+    "location": "Shah Alam, Selangor, Malaysia",
+    "nationality": null,
+    "work_authorisation": null
+  },
+  "education": {
+    "institution": "Universiti Teknologi MARA",
+    "programme": "Bachelor of Information Systems (Hons.) Intelligent Systems Engineering",
+    "cgpa": 3.74,
+    "cgpa_scale": 4.0,
+    "academic_highlights": [
+      "Dean's List for five consecutive semesters",
+      "PETRONAS Powering Knowledge Scholarship recipient"
+    ]
+  },
+  "internship": {
+    "start_date": "2026-09-07",
+    "end_date": "2026-12-11",
+    "duration_weeks": 14,
+    "availability_notes": "Official university documents may show different internship dates. The agent must display any date conflict for manual review."
+  },
+  "preferences": {
+    "target_roles": [
+      "AI Engineering Intern",
+      "Machine Learning Intern",
+      "Data Science Intern",
+      "Data Analytics Intern",
+      "Software Engineering Intern",
+      "AI Automation Intern"
+    ],
+    "preferred_locations": [
+      "Selangor",
+      "Shah Alam",
+      "Semenyih",
+      "Putrajaya",
+      "Cyberjaya",
+      "Kuala Lumpur",
+      "Petaling Jaya",
+      "Hybrid",
+      "Remote"
+    ],
+    "industries": [],
+    "minimum_match_score": 70
+  },
+  "skills": {
+    "programming": [
+      "Python",
+      "SQL",
+      "C",
+      "C++",
+      "R"
+    ],
+    "ai_and_data": [
+      "Machine Learning",
+      "Anomaly Detection",
+      "Autoencoders",
+      "Natural Language Processing",
+      "Classification",
+      "Data Preprocessing",
+      "Feature Engineering",
+      "Model Evaluation",
+      "Prompt Engineering"
+    ],
+    "tools": [
+      "TensorFlow",
+      "Keras",
+      "Streamlit",
+      "Power BI",
+      "RapidMiner",
+      "WEKA",
+      "Google Colab",
+      "Microsoft Excel",
+      "MySQL"
+    ]
+  },
+  "documents": {
+    "master_resume_docx": "documents/master_resume.docx",
+    "master_resume_pdf": "documents/master_resume.pdf",
+    "academic_transcript": "documents/academic_transcript.pdf",
+    "university_letter": "documents/university_internship_letter.pdf",
+    "project_evidence": "documents/project_evidence.md"
+  },
+  "approval": {
+    "required_before_email": true,
+    "required_before_submission": true,
+    "allow_automatic_submission": false
+  }
+}

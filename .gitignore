@@ -1,0 +1,35 @@
+.env
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.pytest_tmp/
+.mypy_cache/
+.ruff_cache/
+dist/
+build/
+*.egg-info/
+
+# Local/private app state
+data/*.db
+data/*.sqlite
+data/*.sqlite3
+data/pytest_tmp/
+generated/
+private/
+outputs/*
+!outputs/.gitkeep
+documents/*.pdf
+documents/*.docx
+documents/project_evidence.md
+official_documents/
+streamlit-smoke*.log
+config/candidate_profile.json
+INTERNSHIP KAMIL/
+
+# Local OS/editor files
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
