@@ -14,6 +14,8 @@ calls behind services.
   grounded application draft generation with internal source references.
 - Milestone 4: deterministic content validation with blocking, warning, and
   information findings before approval.
+- Milestone 5: human review decision persistence for approved and rejected
+  generated packages in SQLite.
 
 ## Setup
 
@@ -72,3 +74,10 @@ company and role names, candidate identity, date and CGPA consistency,
 unsupported technologies, prohibited claims, placeholders, duplicate
 applications, attachment references, and email/cover-letter consistency.
 Blocking findings must be resolved before any future approval action.
+
+## Human Review Persistence
+
+Approved and rejected application packages are saved only after an explicit
+human decision. Approval is blocked when validation has blocking findings, while
+rejections can still be stored with findings and notes for audit history. The
+MVP does not send emails or submit applications automatically.

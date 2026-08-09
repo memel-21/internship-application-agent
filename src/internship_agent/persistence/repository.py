@@ -4,18 +4,30 @@ from collections.abc import Generator
 from contextlib import contextmanager
 from datetime import UTC, date, datetime
 from hashlib import sha256
+from pathlib import Path
 
 from sqlalchemy import create_engine, select
 from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 from sqlalchemy.orm import Session, sessionmaker
 
+from internship_agent.domain.generated_content import GeneratedApplicationContent
+from internship_agent.domain.review import ReviewDecision
 from internship_agent.domain.vacancy import ApplicationStatus, Vacancy
+from internship_agent.domain.validation import ValidationReport
 from internship_agent.exceptions import (
+    ApprovalBlockedError,
     DuplicateApplicationError,
     InvalidStatusTransitionError,
     RepositoryError,
 )
-from internship_agent.persistence.models import ApplicationRecord, AuditLogRecord, Base
+from internship_agent.persistence.models import (
+    ApplicationRecord,
+    ApprovalEventRecord,
+    AuditLogRecord,
+    Base,
+    StatusEventRecord,
+    ValidationFindingRecord,
+)
 
 
 class ApplicationRepository:
@@ -24,6 +36,7 @@ class ApplicationRepository:
     def __init__(self, database_url: str) -> None:
         """Create a repository for the provided SQLAlchemy database URL."""
 
+        _ensure_sqlite_parent(database_url)
         connect_args = {"check_same_thread": False} if database_url.startswith("sqlite") else {}
         self._engine = create_engine(database_url, connect_args=connect_args)
         self._session_factory = sessionmaker(self._engine, expire_on_commit=False)
@@ -98,6 +111,98 @@ class ApplicationRepository:
             ) from exc
         except SQLAlchemyError as exc:
             raise RepositoryError("Could not save the application record.") from exc
+
+        return record
+
+    def record_review_decision(
+        self,
+        *,
+        candidate_email: str,
+        vacancy: Vacancy,
+        content: GeneratedApplicationContent,
+        validation_report: ValidationReport,
+        decision: ReviewDecision,
+        match_score: float,
+        recommendation: str,
+        notes: str = "",
+        follow_up_date: date | None = None,
+    ) -> ApplicationRecord:
+        """Persist a human approval or rejection decision for a generated package."""
+
+        if decision == ReviewDecision.APPROVE and validation_report.has_blocking_findings:
+            raise ApprovalBlockedError(
+                "Application packages with blocking validation findings cannot be approved."
+            )
+
+        status = (
+            ApplicationStatus.APPROVED
+            if decision == ReviewDecision.APPROVE
+            else ApplicationStatus.REJECTED
+        )
+        validation_status = _validation_status(validation_report)
+        record = ApplicationRecord(
+            candidate_email=candidate_email,
+            company_name=vacancy.company_name,
+            role_title=vacancy.role_title,
+            vacancy_fingerprint=vacancy_fingerprint(vacancy),
+            vacancy_source=vacancy.source_text,
+            vacancy_url=str(vacancy.application_url) if vacancy.application_url else None,
+            recommendation=recommendation,
+            status=status.value,
+            match_score=match_score,
+            follow_up_date=follow_up_date,
+            cover_letter_text=content.cover_letter,
+            application_email_subject=content.email_subject,
+            application_email_body=content.email_body,
+            generated_content_json=content.model_dump_json(),
+            validation_status=validation_status,
+            notes=notes,
+        )
+
+        try:
+            with self.session() as session:
+                session.add(record)
+                session.flush()
+                for finding in validation_report.findings:
+                    session.add(
+                        ValidationFindingRecord(
+                            application_id=record.id,
+                            severity=finding.severity.value,
+                            code=finding.code,
+                            message=finding.message,
+                        )
+                    )
+                session.add(
+                    ApprovalEventRecord(
+                        application_id=record.id,
+                        decision=decision.value,
+                        notes=notes,
+                    )
+                )
+                session.add(
+                    StatusEventRecord(
+                        application_id=record.id,
+                        from_status=None,
+                        to_status=status.value,
+                        notes=f"Human review decision: {decision.value}.",
+                    )
+                )
+                session.add(
+                    AuditLogRecord(
+                        application_id=record.id,
+                        action="review_decision_recorded",
+                        detail=(
+                            f"{decision.value} recorded for "
+                            f"{record.company_name} - {record.role_title}."
+                        ),
+                    )
+                )
+        except IntegrityError as exc:
+            raise DuplicateApplicationError(
+                "An application for this candidate, company and role already exists."
+            ) from exc
+        except SQLAlchemyError as exc:
+            raise RepositoryError("Could not record the review decision.") from exc
 
         return record
 
@@ -179,6 +284,34 @@ class ApplicationRepository:
         except SQLAlchemyError as exc:
             raise RepositoryError("Could not list audit log records.") from exc
 
+    def list_validation_findings(self, application_id: int) -> list[ValidationFindingRecord]:
+        """List validation findings for an application."""
+
+        try:
+            with self.session() as session:
+                statement = (
+                    select(ValidationFindingRecord)
+                    .where(ValidationFindingRecord.application_id == application_id)
+                    .order_by(ValidationFindingRecord.id.asc())
+                )
+                return list(session.scalars(statement))
+        except SQLAlchemyError as exc:
+            raise RepositoryError("Could not list validation findings.") from exc
+
+    def list_approval_events(self, application_id: int) -> list[ApprovalEventRecord]:
+        """List approval events for an application."""
+
+        try:
+            with self.session() as session:
+                statement = (
+                    select(ApprovalEventRecord)
+                    .where(ApprovalEventRecord.application_id == application_id)
+                    .order_by(ApprovalEventRecord.created_at.asc())
+                )
+                return list(session.scalars(statement))
+        except SQLAlchemyError as exc:
+            raise RepositoryError("Could not list approval events.") from exc
+
 
 def vacancy_fingerprint(vacancy: Vacancy) -> str:
     """Return a stable fingerprint for duplicate vacancy detection."""
@@ -191,3 +324,17 @@ def vacancy_fingerprint(vacancy: Vacancy) -> str:
         ]
     )
     return sha256(payload.encode("utf-8")).hexdigest()
+
+
+def _validation_status(validation_report: ValidationReport) -> str:
+    if validation_report.has_blocking_findings:
+        return "failed"
+    if validation_report.findings:
+        return "warnings"
+    return "passed"
+
+
+def _ensure_sqlite_parent(database_url: str) -> None:
+    if database_url.startswith("sqlite:///") and database_url != "sqlite:///:memory:":
+        db_path = Path(database_url.removeprefix("sqlite:///"))
+        db_path.parent.mkdir(parents=True, exist_ok=True)

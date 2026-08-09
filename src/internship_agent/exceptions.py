@@ -51,3 +51,7 @@ class RepositoryError(InternshipAgentError):
 
 class InvalidStatusTransitionError(InternshipAgentError):
     """Raised when an application status transition violates product rules."""
+
+
+class ApprovalBlockedError(InternshipAgentError):
+    """Raised when a package cannot be approved due to blocking validation findings."""

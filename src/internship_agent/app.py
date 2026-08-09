@@ -8,20 +8,27 @@ from pydantic import ValidationError
 
 from internship_agent.domain.evidence import EvidenceSelection
 from internship_agent.domain.generated_content import GeneratedApplicationContent
+from internship_agent.domain.review import ReviewDecision
 from internship_agent.domain.vacancy import RequirementLevel, SkillRequirement, Vacancy
-from internship_agent.domain.validation import FindingSeverity
+from internship_agent.domain.validation import FindingSeverity, ValidationReport
 from internship_agent.exceptions import (
+    ApprovalBlockedError,
     CandidateProfileError,
     ContentGenerationError,
+    DuplicateApplicationError,
     EvidenceError,
     InternshipAgentError,
+    RepositoryError,
     VacancyExtractionError,
 )
+from internship_agent.persistence.models import ApplicationRecord
+from internship_agent.persistence.repository import ApplicationRepository
 from internship_agent.services.content_generator import create_content_generator
 from internship_agent.services.content_validator import validate_application_content
 from internship_agent.services.evidence_loader import load_approved_evidence
 from internship_agent.services.evidence_selector import select_evidence
 from internship_agent.services.profile_loader import load_candidate_profile
+from internship_agent.services.scoring import calculate_match_score
 from internship_agent.services.vacancy_extractor import create_vacancy_extractor
 from internship_agent.settings import Settings
 
@@ -181,6 +188,54 @@ def render_app(settings: Settings) -> None:
                 st.success("No validation findings.")
             if validation_report.has_blocking_findings:
                 st.error("Blocking findings must be resolved before approval.")
+            st.subheader("Human review decision")
+            review_notes = st.text_area("Review notes", height=100)
+            match_score = calculate_match_score(candidate, vacancy, current_year=date.today().year)
+            st.write(
+                {
+                    "match_score": match_score.score,
+                    "recommendation": match_score.recommendation.value,
+                }
+            )
+            candidate_email = candidate.email
+            if candidate_email is None:
+                st.error("Candidate email is missing, so the package cannot be saved.")
+            approve_column, reject_column = st.columns(2)
+            with approve_column:
+                if st.button(
+                    "Approve package",
+                    disabled=validation_report.has_blocking_findings or candidate_email is None,
+                ):
+                    if candidate_email is None:
+                        st.error("Candidate email is required before saving a review decision.")
+                        return
+                    _save_review_decision(
+                        settings=settings,
+                        candidate_email=candidate_email,
+                        vacancy=vacancy,
+                        content=content,
+                        validation_report=validation_report,
+                        decision=ReviewDecision.APPROVE,
+                        match_score=match_score.score,
+                        recommendation=match_score.recommendation.value,
+                        notes=review_notes,
+                    )
+            with reject_column:
+                if st.button("Reject package", disabled=candidate_email is None):
+                    if candidate_email is None:
+                        st.error("Candidate email is required before saving a review decision.")
+                        return
+                    _save_review_decision(
+                        settings=settings,
+                        candidate_email=candidate_email,
+                        vacancy=vacancy,
+                        content=content,
+                        validation_report=validation_report,
+                        decision=ReviewDecision.REJECT,
+                        match_score=match_score.score,
+                        recommendation=match_score.recommendation.value,
+                        notes=review_notes,
+                    )
 
     if settings.demo_mode:
         st.info("Demo mode is enabled, so vacancy extraction uses deterministic local logic.")
@@ -190,6 +245,45 @@ def render_app(settings: Settings) -> None:
 
 def _split_csv(value: str) -> list[str]:
     return [item.strip() for item in value.split(",") if item.strip()]
+
+
+def _save_review_decision(
+    *,
+    settings: Settings,
+    candidate_email: str,
+    vacancy: Vacancy,
+    content: GeneratedApplicationContent,
+    validation_report: ValidationReport,
+    decision: ReviewDecision,
+    match_score: float,
+    recommendation: str,
+    notes: str,
+) -> ApplicationRecord | None:
+    repository = ApplicationRepository(settings.database_url)
+    repository.create_schema()
+    try:
+        record = repository.record_review_decision(
+            candidate_email=candidate_email,
+            vacancy=vacancy,
+            content=content,
+            validation_report=validation_report,
+            decision=decision,
+            match_score=match_score,
+            recommendation=recommendation,
+            notes=notes,
+        )
+    except ApprovalBlockedError as exc:
+        st.error(str(exc))
+        return None
+    except DuplicateApplicationError as exc:
+        st.error(str(exc))
+        return None
+    except RepositoryError as exc:
+        st.error(str(exc))
+        return None
+
+    st.success(f"Saved {decision.value} application record #{record.id}.")
+    return record
 
 
 def main() -> None:

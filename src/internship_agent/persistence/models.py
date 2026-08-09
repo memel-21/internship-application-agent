@@ -47,8 +47,10 @@ class ApplicationRecord(Base):
     applied_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     follow_up_date: Mapped[date | None] = mapped_column(Date, nullable=True)
     cover_letter_path: Mapped[str | None] = mapped_column(String(1024), nullable=True)
+    cover_letter_text: Mapped[str | None] = mapped_column(Text, nullable=True)
     application_email_subject: Mapped[str | None] = mapped_column(String(255), nullable=True)
     application_email_body: Mapped[str | None] = mapped_column(Text, nullable=True)
+    generated_content_json: Mapped[str | None] = mapped_column(Text, nullable=True)
     validation_status: Mapped[str] = mapped_column(
         String(32), default="not_validated", nullable=False
     )
@@ -112,6 +114,7 @@ class ValidationFindingRecord(Base):
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     application_id: Mapped[int] = mapped_column(ForeignKey("applications.id"), nullable=False)
     severity: Mapped[str] = mapped_column(String(32), nullable=False)
+    code: Mapped[str] = mapped_column(String(120), nullable=False)
     message: Mapped[str] = mapped_column(Text, nullable=False)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
