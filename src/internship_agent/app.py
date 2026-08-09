@@ -6,7 +6,10 @@ from pathlib import Path
 import streamlit as st
 from pydantic import ValidationError
 
+from internship_agent.domain.evidence import EvidenceSelection
+from internship_agent.domain.generated_content import GeneratedApplicationContent
 from internship_agent.domain.vacancy import RequirementLevel, SkillRequirement, Vacancy
+from internship_agent.domain.validation import FindingSeverity
 from internship_agent.exceptions import (
     CandidateProfileError,
     ContentGenerationError,
@@ -15,6 +18,7 @@ from internship_agent.exceptions import (
     VacancyExtractionError,
 )
 from internship_agent.services.content_generator import create_content_generator
+from internship_agent.services.content_validator import validate_application_content
 from internship_agent.services.evidence_loader import load_approved_evidence
 from internship_agent.services.evidence_selector import select_evidence
 from internship_agent.services.profile_loader import load_candidate_profile
@@ -28,7 +32,7 @@ def render_app(settings: Settings) -> None:
     st.set_page_config(page_title="Internship Application Agent", layout="wide")
     st.title("Internship Application Agent")
 
-    st.caption("Milestone 3: structured extraction and evidence-grounded draft generation.")
+    st.caption("Milestone 4: grounded generation with deterministic content validation.")
 
     profile_path_text = st.text_input(
         "Candidate profile JSON path",
@@ -139,6 +143,16 @@ def render_app(settings: Settings) -> None:
 
         if "generated_content" in st.session_state:
             generated = st.session_state["generated_content"]
+            evidence_selection = EvidenceSelection.model_validate(
+                st.session_state["evidence_selection"]
+            )
+            content = GeneratedApplicationContent.model_validate(generated)
+            validation_report = validate_application_content(
+                candidate=candidate,
+                vacancy=vacancy,
+                content=content,
+                evidence_selection=evidence_selection,
+            )
             st.text_area(
                 "Professional summary",
                 value=generated["professional_summary"],
@@ -153,6 +167,20 @@ def render_app(settings: Settings) -> None:
             if generated["warnings"]:
                 st.warning("Generation warnings")
                 st.write(generated["warnings"])
+            st.subheader("Validation findings")
+            if validation_report.findings:
+                for finding in validation_report.findings:
+                    message = f"{finding.code}: {finding.message}"
+                    if finding.severity == FindingSeverity.BLOCKING:
+                        st.error(message)
+                    elif finding.severity == FindingSeverity.WARNING:
+                        st.warning(message)
+                    else:
+                        st.info(message)
+            else:
+                st.success("No validation findings.")
+            if validation_report.has_blocking_findings:
+                st.error("Blocking findings must be resolved before approval.")
 
     if settings.demo_mode:
         st.info("Demo mode is enabled, so vacancy extraction uses deterministic local logic.")

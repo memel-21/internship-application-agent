@@ -12,6 +12,8 @@ calls behind services.
   and an OpenAI Responses API adapter.
 - Milestone 3: approved evidence loading, deterministic evidence selection, and
   grounded application draft generation with internal source references.
+- Milestone 4: deterministic content validation with blocking, warning, and
+  information findings before approval.
 
 ## Setup
 
@@ -62,3 +64,11 @@ JSON-schema structured response and validating it with Pydantic before use.
 Application drafts are generated from selected approved evidence only. Internal
 claim source references are validated before content is shown for review, and
 unsupported requirements remain visible as gaps instead of fabricated strengths.
+
+## Content Validation
+
+Generated cover letters and emails are checked deterministically for exact
+company and role names, candidate identity, date and CGPA consistency,
+unsupported technologies, prohibited claims, placeholders, duplicate
+applications, attachment references, and email/cover-letter consistency.
+Blocking findings must be resolved before any future approval action.
