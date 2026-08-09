@@ -29,6 +29,18 @@ class VacancyExtractionValidationError(VacancyExtractionError):
     """Raised when extracted vacancy data fails schema validation."""
 
 
+class EvidenceError(InternshipAgentError):
+    """Raised when approved evidence cannot be loaded safely."""
+
+
+class ContentGenerationError(InternshipAgentError):
+    """Raised when application content generation fails safely."""
+
+
+class UnsupportedClaimError(ContentGenerationError):
+    """Raised when generated content contains unsupported claims."""
+
+
 class DuplicateApplicationError(InternshipAgentError):
     """Raised when an application duplicates an existing candidate/company/role record."""
 

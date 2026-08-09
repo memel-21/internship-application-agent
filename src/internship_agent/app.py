@@ -9,9 +9,14 @@ from pydantic import ValidationError
 from internship_agent.domain.vacancy import RequirementLevel, SkillRequirement, Vacancy
 from internship_agent.exceptions import (
     CandidateProfileError,
+    ContentGenerationError,
+    EvidenceError,
     InternshipAgentError,
     VacancyExtractionError,
 )
+from internship_agent.services.content_generator import create_content_generator
+from internship_agent.services.evidence_loader import load_approved_evidence
+from internship_agent.services.evidence_selector import select_evidence
 from internship_agent.services.profile_loader import load_candidate_profile
 from internship_agent.services.vacancy_extractor import create_vacancy_extractor
 from internship_agent.settings import Settings
@@ -23,7 +28,7 @@ def render_app(settings: Settings) -> None:
     st.set_page_config(page_title="Internship Application Agent", layout="wide")
     st.title("Internship Application Agent")
 
-    st.caption("Milestone 2: profile loading and structured vacancy extraction.")
+    st.caption("Milestone 3: structured extraction and evidence-grounded draft generation.")
 
     profile_path_text = st.text_input(
         "Candidate profile JSON path",
@@ -66,6 +71,7 @@ def render_app(settings: Settings) -> None:
                 st.warning("Manual review needed for extraction warnings.")
                 st.write(vacancy.extraction_warnings)
             st.json(vacancy.model_dump(mode="json"))
+            st.session_state["vacancy"] = vacancy.model_dump(mode="json")
 
     with st.expander("Create a manual vacancy object for local testing"):
         company_name = st.text_input("Company name", value="Example Company")
@@ -101,6 +107,52 @@ def render_app(settings: Settings) -> None:
             else:
                 st.success("Manual vacancy object is valid.")
                 st.json(vacancy.model_dump(mode="json"))
+                st.session_state["vacancy"] = vacancy.model_dump(mode="json")
+
+    if candidate is not None and "vacancy" in st.session_state:
+        st.divider()
+        st.subheader("Prepare grounded application draft")
+        vacancy = Vacancy.model_validate(st.session_state["vacancy"])
+        if st.button("Generate grounded draft"):
+            try:
+                evidence_items = load_approved_evidence(candidate, base_path=Path.cwd())
+                evidence_selection = select_evidence(candidate, vacancy, evidence_items)
+                generator = create_content_generator(
+                    demo_mode=settings.demo_mode,
+                    api_key=settings.openai_api_key,
+                    model=settings.openai_model,
+                )
+                content = generator.generate(
+                    candidate=candidate,
+                    vacancy=vacancy,
+                    evidence_selection=evidence_selection,
+                )
+            except (ContentGenerationError, EvidenceError) as exc:
+                st.error(str(exc))
+            else:
+                st.session_state["evidence_selection"] = evidence_selection.model_dump(mode="json")
+                st.session_state["generated_content"] = content.model_dump(mode="json")
+
+        if "evidence_selection" in st.session_state:
+            st.write("Selected evidence")
+            st.json(st.session_state["evidence_selection"])
+
+        if "generated_content" in st.session_state:
+            generated = st.session_state["generated_content"]
+            st.text_area(
+                "Professional summary",
+                value=generated["professional_summary"],
+                height=100,
+            )
+            st.text_input("Email subject", value=generated["email_subject"])
+            st.text_area("Email body", value=generated["email_body"], height=180)
+            st.text_area("Cover letter", value=generated["cover_letter"], height=360)
+            if generated["gaps"]:
+                st.warning("Evidence gaps")
+                st.write(generated["gaps"])
+            if generated["warnings"]:
+                st.warning("Generation warnings")
+                st.write(generated["warnings"])
 
     if settings.demo_mode:
         st.info("Demo mode is enabled, so vacancy extraction uses deterministic local logic.")

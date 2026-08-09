@@ -10,6 +10,8 @@ calls behind services.
   deterministic eligibility/scoring, SQLite repository, and minimal Streamlit UI.
 - Milestone 2: structured vacancy extraction with a deterministic demo extractor
   and an OpenAI Responses API adapter.
+- Milestone 3: approved evidence loading, deterministic evidence selection, and
+  grounded application draft generation with internal source references.
 
 ## Setup
 
@@ -54,3 +56,9 @@ OPENAI_MODEL=
 Demo mode uses deterministic local extraction and never calls OpenAI. Real mode
 uses the OpenAI Responses API through `OpenAIVacancyExtractor`, requesting a
 JSON-schema structured response and validating it with Pydantic before use.
+
+## Grounded Generation
+
+Application drafts are generated from selected approved evidence only. Internal
+claim source references are validated before content is shown for review, and
+unsupported requirements remain visible as gaps instead of fabricated strengths.
