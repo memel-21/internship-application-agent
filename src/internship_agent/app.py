@@ -9,15 +9,22 @@ from pydantic import ValidationError
 from internship_agent.domain.evidence import EvidenceSelection
 from internship_agent.domain.generated_content import GeneratedApplicationContent
 from internship_agent.domain.review import ReviewDecision
-from internship_agent.domain.vacancy import RequirementLevel, SkillRequirement, Vacancy
+from internship_agent.domain.vacancy import (
+    ApplicationStatus,
+    RequirementLevel,
+    SkillRequirement,
+    Vacancy,
+)
 from internship_agent.domain.validation import FindingSeverity, ValidationReport
 from internship_agent.exceptions import (
     ApprovalBlockedError,
     CandidateProfileError,
     ContentGenerationError,
+    DocumentGenerationError,
     DuplicateApplicationError,
     EvidenceError,
     InternshipAgentError,
+    InvalidStatusTransitionError,
     RepositoryError,
     VacancyExtractionError,
 )
@@ -25,6 +32,7 @@ from internship_agent.persistence.models import ApplicationRecord
 from internship_agent.persistence.repository import ApplicationRepository
 from internship_agent.services.content_generator import create_content_generator
 from internship_agent.services.content_validator import validate_application_content
+from internship_agent.services.document_generator import generate_cover_letter_documents
 from internship_agent.services.evidence_loader import load_approved_evidence
 from internship_agent.services.evidence_selector import select_evidence
 from internship_agent.services.profile_loader import load_candidate_profile
@@ -39,7 +47,7 @@ def render_app(settings: Settings) -> None:
     st.set_page_config(page_title="Internship Application Agent", layout="wide")
     st.title("Internship Application Agent")
 
-    st.caption("Milestone 4: grounded generation with deterministic content validation.")
+    st.caption("Final MVP: prepare, validate, approve, export, and track applications locally.")
 
     profile_path_text = st.text_input(
         "Candidate profile JSON path",
@@ -237,6 +245,9 @@ def render_app(settings: Settings) -> None:
                         notes=review_notes,
                     )
 
+    st.divider()
+    _render_tracking_dashboard(settings)
+
     if settings.demo_mode:
         st.info("Demo mode is enabled, so vacancy extraction uses deterministic local logic.")
     else:
@@ -245,6 +256,272 @@ def render_app(settings: Settings) -> None:
 
 def _split_csv(value: str) -> list[str]:
     return [item.strip() for item in value.split(",") if item.strip()]
+
+
+def _render_tracking_dashboard(settings: Settings) -> None:
+    st.subheader("Application tracker")
+    repository = ApplicationRepository(settings.database_url)
+    try:
+        repository.create_schema()
+        applications = repository.list_applications()
+    except RepositoryError as exc:
+        st.error(str(exc))
+        return
+
+    if not applications:
+        st.info("No saved applications yet.")
+        return
+
+    with st.container(horizontal=True):
+        st.metric("Total", len(applications), border=True)
+        st.metric(
+            "Approved",
+            sum(
+                application.status == ApplicationStatus.APPROVED.value
+                for application in applications
+            ),
+            border=True,
+        )
+        st.metric(
+            "Submitted",
+            sum(
+                application.status == ApplicationStatus.SUBMITTED.value
+                for application in applications
+            ),
+            border=True,
+        )
+        st.metric(
+            "Need follow-up",
+            sum(application.follow_up_date is not None for application in applications),
+            border=True,
+        )
+
+    st.dataframe(
+        _application_rows(applications),
+        hide_index=True,
+        column_config={
+            "id": st.column_config.NumberColumn("ID", format="%d"),
+            "company": st.column_config.TextColumn("Company", pinned=True),
+            "role": st.column_config.TextColumn("Role"),
+            "score": st.column_config.NumberColumn("Score", format="%.1f"),
+            "follow_up": st.column_config.DateColumn("Follow-up"),
+        },
+    )
+
+    application_options = {
+        f"#{application.id} - {application.company_name} - {application.role_title}": application.id
+        for application in applications
+    }
+    selected_label = st.selectbox("Review saved application", list(application_options))
+    selected = repository.get_application(application_options[selected_label])
+    if selected is None:
+        st.error("Selected application no longer exists.")
+        return
+
+    with st.container(border=True):
+        st.write(
+            {
+                "status": selected.status,
+                "validation_status": selected.validation_status,
+                "recommendation": selected.recommendation,
+                "match_score": selected.match_score,
+                "follow_up_date": selected.follow_up_date,
+                "cover_letter_path": selected.cover_letter_path,
+            }
+        )
+        if selected.application_email_subject:
+            st.text_input(
+                "Saved email subject",
+                value=selected.application_email_subject,
+                disabled=True,
+                key=f"subject_{selected.id}",
+            )
+        if selected.application_email_body:
+            st.text_area(
+                "Saved email body",
+                value=selected.application_email_body,
+                disabled=True,
+                height=140,
+                key=f"email_{selected.id}",
+            )
+        if selected.cover_letter_text:
+            st.text_area(
+                "Saved cover letter",
+                value=selected.cover_letter_text,
+                disabled=True,
+                height=260,
+                key=f"cover_{selected.id}",
+            )
+
+    _render_document_actions(settings, repository, selected)
+    _render_status_actions(repository, selected)
+    _render_application_history(repository, selected)
+
+
+def _application_rows(applications: list[ApplicationRecord]) -> list[dict[str, object]]:
+    return [
+        {
+            "id": application.id,
+            "company": application.company_name,
+            "role": application.role_title,
+            "status": application.status,
+            "score": application.match_score,
+            "validation": application.validation_status,
+            "follow_up": application.follow_up_date,
+        }
+        for application in applications
+    ]
+
+
+def _render_document_actions(
+    settings: Settings,
+    repository: ApplicationRepository,
+    application: ApplicationRecord,
+) -> None:
+    st.subheader("Documents")
+    documents = repository.list_document_records(application.id)
+    if documents:
+        st.write(
+            [
+                {
+                    "type": document.document_type,
+                    "path": document.path,
+                    "created_at": document.created_at,
+                }
+                for document in documents
+            ]
+        )
+    if application.status != ApplicationStatus.APPROVED.value:
+        st.info("DOCX and PDF generation is available only for approved applications.")
+        return
+
+    overwrite = st.checkbox(
+        "Overwrite existing generated files",
+        value=False,
+        key=f"overwrite_docs_{application.id}",
+    )
+    if st.button("Generate DOCX and PDF", key=f"generate_docs_{application.id}"):
+        try:
+            paths = generate_cover_letter_documents(
+                application,
+                output_dir=settings.output_dir,
+                overwrite=overwrite,
+            )
+            repository.record_generated_documents(
+                application.id,
+                docx_path=paths.docx_path,
+                pdf_path=paths.pdf_path,
+            )
+        except (DocumentGenerationError, RepositoryError) as exc:
+            st.error(str(exc))
+        else:
+            st.success(f"Generated {paths.docx_path.name} and {paths.pdf_path.name}.")
+
+
+def _render_status_actions(
+    repository: ApplicationRepository,
+    application: ApplicationRecord,
+) -> None:
+    st.subheader("Status and follow-up")
+    status_values = [status.value for status in ApplicationStatus]
+    selected_status = st.selectbox(
+        "Status",
+        status_values,
+        index=status_values.index(application.status),
+        key=f"status_{application.id}",
+    )
+    explicit_submission_confirmation = False
+    if selected_status == ApplicationStatus.SUBMITTED.value:
+        explicit_submission_confirmation = st.checkbox(
+            "I explicitly confirm this application was submitted manually.",
+            key=f"submitted_confirm_{application.id}",
+        )
+    if st.button("Update status", key=f"update_status_{application.id}"):
+        try:
+            repository.update_status(
+                application.id,
+                ApplicationStatus(selected_status),
+                explicit_submission_confirmation=explicit_submission_confirmation,
+            )
+        except (InvalidStatusTransitionError, RepositoryError) as exc:
+            st.error(str(exc))
+        else:
+            st.success("Status updated.")
+            st.rerun()
+
+    follow_up_value = st.date_input(
+        "Follow-up date",
+        value=application.follow_up_date or date.today(),
+        key=f"follow_up_{application.id}",
+    )
+    with st.container(horizontal=True):
+        if st.button("Save follow-up date", key=f"save_follow_up_{application.id}"):
+            try:
+                repository.update_follow_up_date(application.id, follow_up_value)
+            except RepositoryError as exc:
+                st.error(str(exc))
+            else:
+                st.success("Follow-up date saved.")
+                st.rerun()
+        if st.button("Clear follow-up date", key=f"clear_follow_up_{application.id}"):
+            try:
+                repository.update_follow_up_date(application.id, None)
+            except RepositoryError as exc:
+                st.error(str(exc))
+            else:
+                st.success("Follow-up date cleared.")
+                st.rerun()
+
+
+def _render_application_history(
+    repository: ApplicationRepository,
+    application: ApplicationRecord,
+) -> None:
+    st.subheader("Audit history")
+    findings = repository.list_validation_findings(application.id)
+    status_events = repository.list_status_events(application.id)
+    audit_logs = [
+        audit_log
+        for audit_log in repository.list_audit_logs()
+        if audit_log.application_id == application.id
+    ]
+    if findings:
+        with st.expander("Validation findings"):
+            st.write(
+                [
+                    {
+                        "severity": finding.severity,
+                        "code": finding.code,
+                        "message": finding.message,
+                    }
+                    for finding in findings
+                ]
+            )
+    if status_events:
+        with st.expander("Status events"):
+            st.write(
+                [
+                    {
+                        "from": event.from_status,
+                        "to": event.to_status,
+                        "notes": event.notes,
+                        "created_at": event.created_at,
+                    }
+                    for event in status_events
+                ]
+            )
+    if audit_logs:
+        with st.expander("Audit logs"):
+            st.write(
+                [
+                    {
+                        "action": audit_log.action,
+                        "detail": audit_log.detail,
+                        "created_at": audit_log.created_at,
+                    }
+                    for audit_log in audit_logs
+                ]
+            )
 
 
 def _save_review_decision(

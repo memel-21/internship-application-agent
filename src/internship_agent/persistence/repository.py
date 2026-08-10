@@ -6,7 +6,7 @@ from datetime import UTC, date, datetime
 from hashlib import sha256
 from pathlib import Path
 
-from sqlalchemy import create_engine, select
+from sqlalchemy import create_engine, select, text
 from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 from sqlalchemy.orm import Session, sessionmaker
 
@@ -21,6 +21,7 @@ from internship_agent.exceptions import (
     RepositoryError,
 )
 from internship_agent.persistence.models import (
+    ApplicationDocumentRecord,
     ApplicationRecord,
     ApprovalEventRecord,
     AuditLogRecord,
@@ -45,6 +46,7 @@ class ApplicationRepository:
         """Create database tables when they do not already exist."""
 
         Base.metadata.create_all(self._engine)
+        self._upgrade_sqlite_schema()
 
     @contextmanager
     def session(self) -> Generator[Session, None, None]:
@@ -243,6 +245,14 @@ class ApplicationRepository:
                 if new_status == ApplicationStatus.SUBMITTED:
                     record.applied_at = datetime.now(UTC)
                 session.add(
+                    StatusEventRecord(
+                        application_id=record.id,
+                        from_status=current_status.value,
+                        to_status=new_status.value,
+                        notes="Status updated by human reviewer.",
+                    )
+                )
+                session.add(
                     AuditLogRecord(
                         application_id=record.id,
                         action="status_changed",
@@ -254,6 +264,77 @@ class ApplicationRepository:
             raise
         except SQLAlchemyError as exc:
             raise RepositoryError("Could not update the application status.") from exc
+
+    def update_follow_up_date(
+        self,
+        application_id: int,
+        follow_up_date: date | None,
+    ) -> ApplicationRecord:
+        """Update the follow-up date and add an audit log entry."""
+
+        try:
+            with self.session() as session:
+                record = session.get(ApplicationRecord, application_id)
+                if record is None:
+                    raise RepositoryError("Application record does not exist.")
+                record.follow_up_date = follow_up_date
+                record.updated_at = datetime.now(UTC)
+                detail = (
+                    "Follow-up date cleared."
+                    if follow_up_date is None
+                    else f"Follow-up date set to {follow_up_date.isoformat()}."
+                )
+                session.add(
+                    AuditLogRecord(
+                        application_id=record.id,
+                        action="follow_up_date_changed",
+                        detail=detail,
+                    )
+                )
+                return record
+        except SQLAlchemyError as exc:
+            raise RepositoryError("Could not update the follow-up date.") from exc
+
+    def record_generated_documents(
+        self,
+        application_id: int,
+        *,
+        docx_path: Path,
+        pdf_path: Path,
+    ) -> ApplicationRecord:
+        """Store generated document paths for an approved application."""
+
+        try:
+            with self.session() as session:
+                record = session.get(ApplicationRecord, application_id)
+                if record is None:
+                    raise RepositoryError("Application record does not exist.")
+                record.cover_letter_path = str(docx_path)
+                record.updated_at = datetime.now(UTC)
+                session.add(
+                    ApplicationDocumentRecord(
+                        application_id=record.id,
+                        document_type="cover_letter_docx",
+                        path=str(docx_path),
+                    )
+                )
+                session.add(
+                    ApplicationDocumentRecord(
+                        application_id=record.id,
+                        document_type="cover_letter_pdf",
+                        path=str(pdf_path),
+                    )
+                )
+                session.add(
+                    AuditLogRecord(
+                        application_id=record.id,
+                        action="documents_generated",
+                        detail="Generated DOCX and PDF cover letter documents.",
+                    )
+                )
+                return record
+        except SQLAlchemyError as exc:
+            raise RepositoryError("Could not record generated documents.") from exc
 
     def get_application(self, application_id: int) -> ApplicationRecord | None:
         """Retrieve one application by ID."""
@@ -311,6 +392,64 @@ class ApplicationRepository:
                 return list(session.scalars(statement))
         except SQLAlchemyError as exc:
             raise RepositoryError("Could not list approval events.") from exc
+
+    def list_document_records(self, application_id: int) -> list[ApplicationDocumentRecord]:
+        """List generated document records for an application."""
+
+        try:
+            with self.session() as session:
+                statement = (
+                    select(ApplicationDocumentRecord)
+                    .where(ApplicationDocumentRecord.application_id == application_id)
+                    .order_by(ApplicationDocumentRecord.created_at.asc())
+                )
+                return list(session.scalars(statement))
+        except SQLAlchemyError as exc:
+            raise RepositoryError("Could not list generated document records.") from exc
+
+    def list_status_events(self, application_id: int) -> list[StatusEventRecord]:
+        """List status events for an application."""
+
+        try:
+            with self.session() as session:
+                statement = (
+                    select(StatusEventRecord)
+                    .where(StatusEventRecord.application_id == application_id)
+                    .order_by(StatusEventRecord.created_at.asc())
+                )
+                return list(session.scalars(statement))
+        except SQLAlchemyError as exc:
+            raise RepositoryError("Could not list status events.") from exc
+
+    def _upgrade_sqlite_schema(self) -> None:
+        if self._engine.url.get_backend_name() != "sqlite":
+            return
+        additive_columns = {
+            "applications": {
+                "cover_letter_text": "TEXT",
+                "generated_content_json": "TEXT",
+            },
+            "validation_findings": {
+                "code": "VARCHAR(120) NOT NULL DEFAULT 'legacy_finding'",
+            },
+        }
+        try:
+            with self._engine.begin() as connection:
+                for table_name, columns in additive_columns.items():
+                    existing_columns = {
+                        row[1]
+                        for row in connection.execute(text(f"PRAGMA table_info({table_name})"))
+                    }
+                    for column_name, column_sql in columns.items():
+                        if column_name not in existing_columns:
+                            connection.execute(
+                                text(
+                                    f"ALTER TABLE {table_name} "
+                                    f"ADD COLUMN {column_name} {column_sql}"
+                                )
+                            )
+        except SQLAlchemyError as exc:
+            raise RepositoryError("Could not upgrade the SQLite schema.") from exc
 
 
 def vacancy_fingerprint(vacancy: Vacancy) -> str:

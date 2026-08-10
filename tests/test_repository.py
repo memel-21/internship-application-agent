@@ -1,5 +1,8 @@
 """Tests for SQLite application repository."""
 
+from datetime import date
+from pathlib import Path
+
 import pytest
 
 from internship_agent.domain.generated_content import (
@@ -218,6 +221,82 @@ def test_rejected_review_decision_allows_blocking_findings(sqlite_url: str) -> N
     assert retrieved.notes == "Rejected due to unsupported claim."
     assert findings[0].code == "unsupported_technology"
     assert approval_events[0].decision == ReviewDecision.REJECT.value
+
+
+def test_update_status_records_status_event(sqlite_url: str) -> None:
+    """Status updates persist both current status and status history."""
+
+    repository = ApplicationRepository(sqlite_url)
+    repository.create_schema()
+    created = repository.record_review_decision(
+        candidate_email="test@example.edu",
+        vacancy=_vacancy(),
+        content=_content(),
+        validation_report=ValidationReport(),
+        decision=ReviewDecision.APPROVE,
+        match_score=82.5,
+        recommendation="apply",
+    )
+
+    updated = repository.update_status(created.id, ApplicationStatus.READY_TO_SEND)
+    status_events = repository.list_status_events(created.id)
+
+    assert updated.status == ApplicationStatus.READY_TO_SEND.value
+    assert status_events[-1].from_status == ApplicationStatus.APPROVED.value
+    assert status_events[-1].to_status == ApplicationStatus.READY_TO_SEND.value
+
+
+def test_update_follow_up_date_records_audit_log(sqlite_url: str) -> None:
+    """Follow-up date changes are stored and audited."""
+
+    repository = ApplicationRepository(sqlite_url)
+    repository.create_schema()
+    created = repository.record_review_decision(
+        candidate_email="test@example.edu",
+        vacancy=_vacancy(),
+        content=_content(),
+        validation_report=ValidationReport(),
+        decision=ReviewDecision.APPROVE,
+        match_score=82.5,
+        recommendation="apply",
+    )
+
+    updated = repository.update_follow_up_date(created.id, date(2026, 9, 1))
+    audit_logs = repository.list_audit_logs()
+
+    assert updated.follow_up_date == date(2026, 9, 1)
+    assert audit_logs[-1].action == "follow_up_date_changed"
+
+
+def test_record_generated_documents_persists_paths(sqlite_url: str, tmp_path: Path) -> None:
+    """Generated DOCX and PDF paths are linked to the application."""
+
+    repository = ApplicationRepository(sqlite_url)
+    repository.create_schema()
+    created = repository.record_review_decision(
+        candidate_email="test@example.edu",
+        vacancy=_vacancy(),
+        content=_content(),
+        validation_report=ValidationReport(),
+        decision=ReviewDecision.APPROVE,
+        match_score=82.5,
+        recommendation="apply",
+    )
+    docx_path = tmp_path / "cover.docx"
+    pdf_path = tmp_path / "cover.pdf"
+
+    updated = repository.record_generated_documents(
+        created.id,
+        docx_path=docx_path,
+        pdf_path=pdf_path,
+    )
+    documents = repository.list_document_records(created.id)
+
+    assert updated.cover_letter_path == str(docx_path)
+    assert {document.document_type for document in documents} == {
+        "cover_letter_docx",
+        "cover_letter_pdf",
+    }
 
 
 def _vacancy() -> Vacancy:

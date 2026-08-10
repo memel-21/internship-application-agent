@@ -55,3 +55,7 @@ class InvalidStatusTransitionError(InternshipAgentError):
 
 class ApprovalBlockedError(InternshipAgentError):
     """Raised when a package cannot be approved due to blocking validation findings."""
+
+
+class DocumentGenerationError(InternshipAgentError):
+    """Raised when approved application documents cannot be generated safely."""

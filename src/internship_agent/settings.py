@@ -14,6 +14,7 @@ class Settings(BaseSettings):
     demo_mode: bool = True
     database_url: str = "sqlite:///data/internship_agent.db"
     candidate_profile_path: Path = Field(default=Path("config/candidate_profile.json"))
+    output_dir: Path = Field(default=Path("outputs"))
     openai_api_key: str | None = Field(
         default=None,
         validation_alias=AliasChoices("OPENAI_API_KEY", "INTERNSHIP_AGENT_OPENAI_API_KEY"),

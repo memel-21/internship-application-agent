@@ -16,6 +16,11 @@ calls behind services.
   information findings before approval.
 - Milestone 5: human review decision persistence for approved and rejected
   generated packages in SQLite.
+- Milestone 6: DOCX and PDF cover letter generation for approved packages.
+- Milestone 7: application tracking dashboard for statuses, follow-up dates,
+  documents, validation findings, and audit history.
+- Milestone 8: final MVP hardening with additive SQLite schema upgrades,
+  overwrite protection, and full local verification.
 
 ## Setup
 
@@ -81,3 +86,16 @@ Approved and rejected application packages are saved only after an explicit
 human decision. Approval is blocked when validation has blocking findings, while
 rejections can still be stored with findings and notes for audit history. The
 MVP does not send emails or submit applications automatically.
+
+## Document Generation
+
+Approved cover letters can be exported to DOCX and PDF under the configured
+output directory. Filenames are sanitized, existing files are not overwritten
+unless the user explicitly enables overwrite, and generated document paths are
+recorded in SQLite.
+
+## Application Tracking
+
+The Streamlit tracker lists saved applications, shows review artifacts and audit
+history, updates follow-up dates, and changes statuses. Submission status still
+requires explicit manual confirmation from the user.
