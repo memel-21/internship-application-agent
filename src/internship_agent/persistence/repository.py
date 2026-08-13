@@ -154,6 +154,9 @@ class ApplicationRepository:
             match_score=match_score,
             follow_up_date=follow_up_date,
             cover_letter_text=content.cover_letter,
+            application_recipient_email=(
+                str(vacancy.application_email) if vacancy.application_email else None
+            ),
             application_email_subject=content.email_subject,
             application_email_body=content.email_body,
             generated_content_json=content.model_dump_json(),
@@ -336,6 +339,36 @@ class ApplicationRepository:
         except SQLAlchemyError as exc:
             raise RepositoryError("Could not record generated documents.") from exc
 
+    def record_gmail_draft(
+        self,
+        application_id: int,
+        *,
+        recipient_email: str,
+        draft_id: str,
+        draft_url: str | None = None,
+    ) -> ApplicationRecord:
+        """Store Gmail draft metadata after a human-approved draft creation."""
+
+        try:
+            with self.session() as session:
+                record = session.get(ApplicationRecord, application_id)
+                if record is None:
+                    raise RepositoryError("Application record does not exist.")
+                record.application_recipient_email = recipient_email
+                record.gmail_draft_id = draft_id
+                record.gmail_draft_url = draft_url
+                record.updated_at = datetime.now(UTC)
+                session.add(
+                    AuditLogRecord(
+                        application_id=record.id,
+                        action="gmail_draft_created",
+                        detail=f"Gmail draft created for {recipient_email}.",
+                    )
+                )
+                return record
+        except SQLAlchemyError as exc:
+            raise RepositoryError("Could not record Gmail draft metadata.") from exc
+
     def get_application(self, application_id: int) -> ApplicationRecord | None:
         """Retrieve one application by ID."""
 
@@ -427,6 +460,9 @@ class ApplicationRepository:
         additive_columns = {
             "applications": {
                 "cover_letter_text": "TEXT",
+                "application_recipient_email": "VARCHAR(320)",
+                "gmail_draft_id": "VARCHAR(255)",
+                "gmail_draft_url": "VARCHAR(2048)",
                 "generated_content_json": "TEXT",
             },
             "validation_findings": {

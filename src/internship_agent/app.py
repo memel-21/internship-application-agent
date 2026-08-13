@@ -22,17 +22,22 @@ from internship_agent.exceptions import (
     ContentGenerationError,
     DocumentGenerationError,
     DuplicateApplicationError,
+    EmailDraftError,
     EvidenceError,
     InternshipAgentError,
     InvalidStatusTransitionError,
     RepositoryError,
     VacancyExtractionError,
 )
-from internship_agent.persistence.models import ApplicationRecord
+from internship_agent.persistence.models import ApplicationDocumentRecord, ApplicationRecord
 from internship_agent.persistence.repository import ApplicationRepository
 from internship_agent.services.content_generator import create_content_generator
 from internship_agent.services.content_validator import validate_application_content
 from internship_agent.services.document_generator import generate_cover_letter_documents
+from internship_agent.services.email_draft import (
+    latest_cover_letter_pdf,
+    prepare_gmail_draft_package,
+)
 from internship_agent.services.evidence_loader import load_approved_evidence
 from internship_agent.services.evidence_selector import select_evidence
 from internship_agent.services.profile_loader import load_candidate_profile
@@ -416,6 +421,98 @@ def _render_document_actions(
             st.error(str(exc))
         else:
             st.success(f"Generated {paths.docx_path.name} and {paths.pdf_path.name}.")
+            st.rerun()
+
+    _render_email_draft_actions(settings, repository, application, documents)
+
+
+def _render_email_draft_actions(
+    settings: Settings,
+    repository: ApplicationRepository,
+    application: ApplicationRecord,
+    documents: list[ApplicationDocumentRecord],
+) -> None:
+    st.subheader("Gmail draft package")
+    if application.status != ApplicationStatus.APPROVED.value:
+        st.info("Gmail draft preparation is available only for approved applications.")
+        return
+
+    cover_letter_pdf = latest_cover_letter_pdf(documents)
+    recipient = st.text_input(
+        "Recipient email",
+        value=application.application_recipient_email or "",
+        key=f"draft_recipient_{application.id}",
+    )
+    cover_path = st.text_input(
+        "Generated cover letter PDF",
+        value=str(cover_letter_pdf or ""),
+        key=f"draft_cover_{application.id}",
+    )
+    resume_path = st.text_input(
+        "Resume PDF",
+        value=str(settings.resume_pdf_path or ""),
+        key=f"draft_resume_{application.id}",
+    )
+    transcript_path = st.text_input(
+        "Academic transcript PDF",
+        value=str(settings.academic_transcript_pdf_path or ""),
+        key=f"draft_transcript_{application.id}",
+    )
+    internship_letter_path = st.text_input(
+        "UiTM internship letter PDF",
+        value=str(settings.university_internship_letter_pdf_path or ""),
+        key=f"draft_internship_letter_{application.id}",
+    )
+
+    if application.gmail_draft_url:
+        st.success(f"Gmail draft recorded: {application.gmail_draft_url}")
+    elif application.gmail_draft_id:
+        st.success(f"Gmail draft recorded: {application.gmail_draft_id}")
+
+    if st.button("Validate draft package", key=f"validate_draft_{application.id}"):
+        try:
+            package = prepare_gmail_draft_package(
+                application=application,
+                recipient_email=recipient,
+                cover_letter_path=Path(cover_path),
+                resume_pdf_path=Path(resume_path),
+                academic_transcript_pdf_path=Path(transcript_path),
+                university_internship_letter_pdf_path=Path(internship_letter_path),
+            )
+        except EmailDraftError as exc:
+            st.error(str(exc))
+        else:
+            st.success("Draft package is ready for Gmail draft creation.")
+            st.write(
+                [
+                    {
+                        "attachment": attachment.label,
+                        "file": attachment.path.name,
+                        "mime_type": attachment.mime_type,
+                    }
+                    for attachment in package.attachments
+                ]
+            )
+
+    with st.expander("Record Gmail draft after creation"):
+        draft_id = st.text_input("Gmail draft ID", key=f"gmail_draft_id_{application.id}")
+        draft_url = st.text_input("Gmail draft URL", key=f"gmail_draft_url_{application.id}")
+        if st.button("Mark Gmail draft created", key=f"mark_draft_{application.id}"):
+            if not draft_id.strip():
+                st.error("Gmail draft ID is required.")
+                return
+            try:
+                repository.record_gmail_draft(
+                    application.id,
+                    recipient_email=recipient,
+                    draft_id=draft_id.strip(),
+                    draft_url=draft_url.strip() or None,
+                )
+            except RepositoryError as exc:
+                st.error(str(exc))
+            else:
+                st.success("Gmail draft metadata saved.")
+                st.rerun()
 
 
 def _render_status_actions(

@@ -99,3 +99,12 @@ recorded in SQLite.
 The Streamlit tracker lists saved applications, shows review artifacts and audit
 history, updates follow-up dates, and changes statuses. Submission status still
 requires explicit manual confirmation from the user.
+
+## Gmail Draft Preparation
+
+The app validates a draft package for approved applications before any outreach.
+The required attachments are the generated cover letter PDF, resume PDF,
+academic transcript PDF, and university internship letter PDF. Missing files,
+invalid recipient emails, unsupported attachment types, and unapproved
+applications block draft preparation. The MVP prepares and records Gmail draft
+metadata only; it does not send emails automatically.

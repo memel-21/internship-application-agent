@@ -48,8 +48,11 @@ class ApplicationRecord(Base):
     follow_up_date: Mapped[date | None] = mapped_column(Date, nullable=True)
     cover_letter_path: Mapped[str | None] = mapped_column(String(1024), nullable=True)
     cover_letter_text: Mapped[str | None] = mapped_column(Text, nullable=True)
+    application_recipient_email: Mapped[str | None] = mapped_column(String(320), nullable=True)
     application_email_subject: Mapped[str | None] = mapped_column(String(255), nullable=True)
     application_email_body: Mapped[str | None] = mapped_column(Text, nullable=True)
+    gmail_draft_id: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    gmail_draft_url: Mapped[str | None] = mapped_column(String(2048), nullable=True)
     generated_content_json: Mapped[str | None] = mapped_column(Text, nullable=True)
     validation_status: Mapped[str] = mapped_column(
         String(32), default="not_validated", nullable=False

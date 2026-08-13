@@ -299,6 +299,35 @@ def test_record_generated_documents_persists_paths(sqlite_url: str, tmp_path: Pa
     }
 
 
+def test_record_gmail_draft_persists_metadata(sqlite_url: str) -> None:
+    """Gmail draft metadata is stored and audited."""
+
+    repository = ApplicationRepository(sqlite_url)
+    repository.create_schema()
+    created = repository.record_review_decision(
+        candidate_email="test@example.edu",
+        vacancy=_vacancy(),
+        content=_content(),
+        validation_report=ValidationReport(),
+        decision=ReviewDecision.APPROVE,
+        match_score=82.5,
+        recommendation="apply",
+    )
+
+    updated = repository.record_gmail_draft(
+        created.id,
+        recipient_email="hr@example.com",
+        draft_id="draft-123",
+        draft_url="https://mail.google.com/draft",
+    )
+    audit_logs = repository.list_audit_logs()
+
+    assert updated.application_recipient_email == "hr@example.com"
+    assert updated.gmail_draft_id == "draft-123"
+    assert updated.gmail_draft_url == "https://mail.google.com/draft"
+    assert audit_logs[-1].action == "gmail_draft_created"
+
+
 def _vacancy() -> Vacancy:
     return Vacancy(
         company_name="Acme",

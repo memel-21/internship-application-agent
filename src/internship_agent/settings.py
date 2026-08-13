@@ -15,6 +15,9 @@ class Settings(BaseSettings):
     database_url: str = "sqlite:///data/internship_agent.db"
     candidate_profile_path: Path = Field(default=Path("config/candidate_profile.json"))
     output_dir: Path = Field(default=Path("outputs"))
+    resume_pdf_path: Path | None = None
+    academic_transcript_pdf_path: Path | None = None
+    university_internship_letter_pdf_path: Path | None = None
     openai_api_key: str | None = Field(
         default=None,
         validation_alias=AliasChoices("OPENAI_API_KEY", "INTERNSHIP_AGENT_OPENAI_API_KEY"),

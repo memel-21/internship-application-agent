@@ -59,3 +59,7 @@ class ApprovalBlockedError(InternshipAgentError):
 
 class DocumentGenerationError(InternshipAgentError):
     """Raised when approved application documents cannot be generated safely."""
+
+
+class EmailDraftError(InternshipAgentError):
+    """Raised when an email draft package cannot be prepared safely."""
